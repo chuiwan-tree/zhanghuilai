@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>长回来</title>
+<style>
+  body { margin: 0; background: #f4efe6; font-family: -apple-system, "PingFang SC", sans-serif; color: #3a2e25; display: flex; flex-direction: column; align-items: center; }
+  h1 { font-size: 20px; font-weight: 500; margin: 18px 0 4px; }
+  p { margin: 4px 0; font-size: 14px; max-width: 560px; line-height: 1.6; }
+  canvas { background: #fff; margin-top: 10px; touch-action: none; cursor: crosshair; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  .bar { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button { font-size: 14px; padding: 6px 12px; border: 1px solid #b9a690; background: #fff; border-radius: 5px; cursor: pointer; color: #3a2e25; }
+  button.on { background: #6b4a33; color: #fff; border-color: #6b4a33; }
+  #hud { font-size: 13px; color: #8a7663; margin-top: 6px; height: 18px; }
+</style>
+</head>
+<body>
+<h1>长回来</h1>
+<p>一条涡虫。每一格只看得见自己和挨着的八格，所有格子照同一个小规矩变。没有哪一格知道整条虫长什么样。</p>
+<p>拿手指或鼠标去划它。</p>
+<canvas id="c"></canvas>
+<div class="bar">
+  <button id="t-erase" class="on">抹掉</button>
+  <button id="t-cut">切一刀</button>
+  <button id="t-split">掰开</button>
+  <button id="t-seed">点一颗种子</button>
+  <button id="pause">停</button>
+  <button id="reset">从头长</button>
+</div>
+<div id="hud"></div>
+<script>
+const SCALE = 6;
+let net, CH, HID, H, W;
+let state, next, dxbuf, alivePre;
+let tool = 'erase', paused = false, steps = 0;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const hud = document.getElementById('hud');
+
+function idx(c, y, x) { return (c * H + y) * W + x; }
+
+function reset() {
+  state.fill(0);
+  plant(Math.floor(H / 2), Math.floor(W / 2));
+  steps = 0;
+}
+function plant(y, x) {
+  for (let c = 3; c < CH; c++) state[idx(c, y, x)] = 1;
+}
+
+function aliveMask(s, out) {
+  // 3x3 里 alpha 最大的 > 0.1 就算活着（跟练的时候一样，四边绕回去）
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let m = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const yy = (y + dy + H) % H, xx = (x + dx + W) % W;
+      const a = s[idx(3, yy, xx)];
+      if (a > m) m = a;
+    }
+    out[y * W + x] = m > 0.1 ? 1 : 0;
+  }
+}
+
+let W1, B1, W2, P, HW;
+const h = new Float32Array(256), hi = new Int32Array(256);
+function step() {
+  aliveMask(state, alivePre);
+  next.set(state);
+  const p = new Float32Array(CH * 3);
+  for (let y = 0; y < H; y++) {
+    const ym = (y - 1 + H) % H, yp = (y + 1) % H;
+    for (let x = 0; x < W; x++) {
+      if (!alivePre[y * W + x]) continue;
+      if (Math.random() > 0.5) continue;
+      const xm = (x - 1 + W) % W, xp = (x + 1) % W;
+      for (let c = 0; c < CH; c++) {
+        const o = c * H * W;
+        const a = state[o + ym * W + xm], b = state[o + ym * W + x], d = state[o + ym * W + xp];
+        const e = state[o + y * W + xm], f = state[o + y * W + x], g = state[o + y * W + xp];
+        const i = state[o + yp * W + xm], j = state[o + yp * W + x], k = state[o + yp * W + xp];
+        p[c * 3] = f;
+        p[c * 3 + 1] = (-a + d - 2 * e + 2 * g - i + k) / 8;   // 横着的 Sobel
+        p[c * 3 + 2] = (-a - 2 * b - d + i + 2 * j + k) / 8;   // 竖着的
+      }
+      // 先算隐层，只记下大于 0 的那些，第二层只乘它们
+      let nz = 0;
+      for (let u = 0, o = 0; u < HID; u++, o += P) {
+        let s = B1[u];
+        for (let q = 0; q < P; q++) s += W1[o + q] * p[q];
+        if (s > 0) { h[nz] = s; hi[nz] = u; nz++; }
+      }
+      const cell = y * W + x;
+      for (let c = 0; c < CH; c++) {
+        let s = 0; const o = c * HID;
+        for (let k = 0; k < nz; k++) s += W2[o + hi[k]] * h[k];
+        next[c * HW + cell] += s;
+      }
+    }
+  }
+  // 前后都活着的才留
+  const post = new Uint8Array(H * W);
+  aliveMask(next, post);
+  for (let q = 0; q < H * W; q++) {
+    if (!(alivePre[q] && post[q])) for (let c = 0; c < CH; c++) next[c * H * W + q] = 0;
+  }
+  const t = state; state = next; next = t;
+  steps++;
+}
+
+let img;
+const off = document.createElement('canvas');
+function draw() {
+  off.width = W; off.height = H;
+  for (let q = 0; q < H * W; q++) {
+    const a = Math.min(1, Math.max(0, state[3 * H * W + q]));
+    for (let c = 0; c < 3; c++) {
+      const v = 1 - a + state[c * H * W + q];
+      img.data[q * 4 + c] = Math.max(0, Math.min(255, v * 255));
+    }
+    img.data[q * 4 + 3] = 255;
+  }
+  off.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, 0, 0, W * SCALE, H * SCALE);
+  if (cutFrom && cutTo) {
+    ctx.strokeStyle = 'rgba(180,40,30,.8)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cutFrom[0] * SCALE, cutFrom[1] * SCALE); ctx.lineTo(cutTo[0] * SCALE, cutTo[1] * SCALE); ctx.stroke();
+  }
+  hud.textContent = `第 ${steps} 步` + (paused ? '（停着）' : '');
+}
+
+function eraseAt(gx, gy, r) {
+  for (let y = Math.floor(gy - r); y <= gy + r; y++) for (let x = Math.floor(gx - r); x <= gx + r; x++) {
+    if ((x - gx) ** 2 + (y - gy) ** 2 > r * r) continue;
+    const yy = (y + H) % H, xx = (x + W) % W;
+    for (let c = 0; c < CH; c++) state[idx(c, yy, xx)] = 0;
+  }
+}
+function cutLine(a, b) {
+  const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2) + 1;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    eraseAt(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 1.3);
+  }
+}
+
+function splitLine(a, b, k) {
+  // 沿 a→b 这条线切开，两边各往外推 k 格
+  let nx = -(b[1] - a[1]), ny = b[0] - a[0];
+  const L = Math.hypot(nx, ny); if (L < 1) return;
+  nx /= L; ny /= L;
+  const src = state.slice(); state.fill(0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (src[3 * HW + y * W + x] <= 0.001) continue;
+    const d = (x + 0.5 - a[0]) * nx + (y + 0.5 - a[1]) * ny;
+    if (Math.abs(d) < 1.2) continue;
+    const sg = d > 0 ? 1 : -1;
+    const tx = Math.round(x + sg * k * nx), ty = Math.round(y + sg * k * ny);
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+    for (let c = 0; c < CH; c++) state[c * HW + ty * W + tx] = src[c * HW + y * W + x];
+  }
+}
+
+let down = false, cutFrom = null, cutTo = null;
+function gpos(e) {
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H];
+}
+cv.addEventListener('pointerdown', e => {
+  down = true; cv.setPointerCapture(e.pointerId);
+  const g = gpos(e);
+  if (tool === 'erase') eraseAt(g[0], g[1], 3.5);
+  else if (tool === 'cut' || tool === 'split') { cutFrom = g; cutTo = g; }
+  else if (tool === 'seed') plant(Math.floor(g[1]), Math.floor(g[0]));
+  draw();
+});
+cv.addEventListener('pointermove', e => {
+  if (!down) return;
+  const g = gpos(e);
+  if (tool === 'erase') eraseAt(g[0], g[1], 3.5);
+  else if (tool === 'cut' || tool === 'split') cutTo = g;
+  draw();
+});
+cv.addEventListener('pointerup', e => {
+  down = false;
+  if (tool === 'cut' && cutFrom) { cutLine(cutFrom, cutTo); cutFrom = cutTo = null; }
+  if (tool === 'split' && cutFrom) { splitLine(cutFrom, cutTo, 5); cutFrom = cutTo = null; }
+  draw();
+});
+
+for (const [id, t] of [['t-erase', 'erase'], ['t-cut', 'cut'], ['t-split', 'split'], ['t-seed', 'seed']]) {
+  document.getElementById(id).onclick = () => {
+    tool = t;
+    for (const b of document.querySelectorAll('.bar button')) b.classList.remove('on');
+    document.getElementById(id).classList.add('on');
+  };
+}
+document.getElementById('pause').onclick = e => { paused = !paused; e.target.textContent = paused ? '走' : '停'; draw(); };
+document.getElementById('reset').onclick = () => { reset(); draw(); };
+
+function loop() {
+  if (!paused) { const t0 = performance.now(); do { step(); } while (performance.now() - t0 < 12 && steps % 4 != 0); }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+fetch('网.json?v=1').then(r => r.json()).then(j => {
+  net = j; CH = j.CH; HID = j.HID; P = CH * 3;
+  W1 = new Float32Array(j.w1.flat()); B1 = new Float32Array(j.b1); W2 = new Float32Array(j.w2.flat());
+  H = 80; W = 64; HW = H * W;                         // 比练的时候长一点，切开以后有地方长
+  state = new Float32Array(CH * H * W); next = new Float32Array(CH * H * W);
+  alivePre = new Uint8Array(H * W);
+  img = ctx.createImageData(W, H);
+  cv.width = W * SCALE; cv.height = H * SCALE;
+  cv.style.width = Math.min(W * SCALE, window.innerWidth - 20) + 'px';
+  reset(); loop();
+  window.__ca = { get steps() { return steps; }, state: () => state, H, W, CH, step, eraseAt, cutLine, splitLine, plant, reset, setPaused: v => paused = v };
+});
+</script>
+</body>
+</html>
