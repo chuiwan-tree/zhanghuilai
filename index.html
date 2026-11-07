@@ -25,6 +25,7 @@
   <button id="t-cut">划一道</button>
   <button id="t-split">掰开</button>
   <button id="t-seed">点一颗种子</button>
+  <button id="t-flip">翻过来</button>
   <button id="pause">停</button>
   <button id="reset">从头长</button>
 </div>
@@ -145,6 +146,15 @@ function cutLine(a, b) {
   }
 }
 
+function flipBand(y1, y2) {
+  // 把 y1..y2 这几行整段上下翻过来（格子里存的数不动，只换位置）
+  let a = Math.max(0, Math.floor(Math.min(y1, y2))), b = Math.min(H - 1, Math.floor(Math.max(y1, y2)));
+  if (b - a < 1) return;
+  const src = state.slice();
+  for (let y = a; y <= b; y++) { const sy = a + b - y;
+    for (let c = 0; c < CH; c++) for (let x = 0; x < W; x++) state[c * HW + y * W + x] = src[c * HW + sy * W + x]; }
+}
+
 function splitLine(a, b, k) {
   // 沿 a→b 这条线切开，两边各往外推 k 格
   let nx = -(b[1] - a[1]), ny = b[0] - a[0];
@@ -166,6 +176,7 @@ const TIPS = {
   erase: '按住拖，抹掉它一块。',
   cut: '拖一条线，沿线划一道细口子。口子会自己合上，两边不会分开。',
   split: '拖一条线，沿线切开，两边各推开五格。竖着从头掰到尾试试，横着掰也试试。',
+  flip: '上下拖一段，把这一段整个上下翻过来。翻它中间那截试试，等它长好了，再把接口那几行单独留下（别的抹掉）。',
   seed: '点一下，在那儿种一颗新的。离它近一点、远一点，长出来的不一样。'
 };
 let down = false, cutFrom = null, cutTo = null;
@@ -177,7 +188,7 @@ cv.addEventListener('pointerdown', e => {
   down = true; cv.setPointerCapture(e.pointerId);
   const g = gpos(e);
   if (tool === 'erase') eraseAt(g[0], g[1], 3.5);
-  else if (tool === 'cut' || tool === 'split') { cutFrom = g; cutTo = g; }
+  else if (tool === 'cut' || tool === 'split' || tool === 'flip') { cutFrom = g; cutTo = g; }
   else if (tool === 'seed') plant(Math.floor(g[1]), Math.floor(g[0]));
   draw();
 });
@@ -185,17 +196,18 @@ cv.addEventListener('pointermove', e => {
   if (!down) return;
   const g = gpos(e);
   if (tool === 'erase') eraseAt(g[0], g[1], 3.5);
-  else if (tool === 'cut' || tool === 'split') cutTo = g;
+  else if (tool === 'cut' || tool === 'split' || tool === 'flip') cutTo = g;
   draw();
 });
 cv.addEventListener('pointerup', e => {
   down = false;
   if (tool === 'cut' && cutFrom) { cutLine(cutFrom, cutTo); cutFrom = cutTo = null; }
+  if (tool === 'flip' && cutFrom) { flipBand(cutFrom[1], cutTo[1]); cutFrom = cutTo = null; }
   if (tool === 'split' && cutFrom) { splitLine(cutFrom, cutTo, 5); cutFrom = cutTo = null; }
   draw();
 });
 
-for (const [id, t] of [['t-erase', 'erase'], ['t-cut', 'cut'], ['t-split', 'split'], ['t-seed', 'seed']]) {
+for (const [id, t] of [['t-erase', 'erase'], ['t-cut', 'cut'], ['t-split', 'split'], ['t-seed', 'seed'], ['t-flip', 'flip']]) {
   document.getElementById(id).onclick = () => {
     tool = t;
     document.getElementById('tip').textContent = TIPS[t];
@@ -222,7 +234,7 @@ fetch('网.json?v=1').then(r => r.json()).then(j => {
   cv.width = W * SCALE; cv.height = H * SCALE;
   cv.style.width = Math.min(W * SCALE, window.innerWidth - 20) + 'px';
   reset(); loop();
-  window.__ca = { get steps() { return steps; }, state: () => state, H, W, CH, step, eraseAt, cutLine, splitLine, plant, reset, setPaused: v => paused = v };
+  window.__ca = { get steps() { return steps; }, state: () => state, H, W, CH, step, eraseAt, cutLine, splitLine, flipBand, plant, reset, setPaused: v => paused = v };
 });
 </script>
 </body>
