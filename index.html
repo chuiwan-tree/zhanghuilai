@@ -22,12 +22,13 @@
 <canvas id="c"></canvas>
 <div class="bar">
   <button id="t-erase" class="on">抹掉</button>
-  <button id="t-cut">切一刀</button>
+  <button id="t-cut">划一道</button>
   <button id="t-split">掰开</button>
   <button id="t-seed">点一颗种子</button>
   <button id="pause">停</button>
   <button id="reset">从头长</button>
 </div>
+<div id="tip" style="font-size:13px;margin-top:6px;color:#6b4a33">按住拖，抹掉它一块。</div>
 <div id="hud"></div>
 <script>
 const SCALE = 6;
@@ -161,6 +162,12 @@ function splitLine(a, b, k) {
   }
 }
 
+const TIPS = {
+  erase: '按住拖，抹掉它一块。',
+  cut: '拖一条线，沿线划一道细口子。口子会自己合上，两边不会分开。',
+  split: '拖一条线，沿线切开，两边各推开五格。竖着从头掰到尾试试，横着掰也试试。',
+  seed: '点一下，在那儿种一颗新的。离它近一点、远一点，长出来的不一样。'
+};
 let down = false, cutFrom = null, cutTo = null;
 function gpos(e) {
   const r = cv.getBoundingClientRect();
@@ -191,6 +198,7 @@ cv.addEventListener('pointerup', e => {
 for (const [id, t] of [['t-erase', 'erase'], ['t-cut', 'cut'], ['t-split', 'split'], ['t-seed', 'seed']]) {
   document.getElementById(id).onclick = () => {
     tool = t;
+    document.getElementById('tip').textContent = TIPS[t];
     for (const b of document.querySelectorAll('.bar button')) b.classList.remove('on');
     document.getElementById(id).classList.add('on');
   };
